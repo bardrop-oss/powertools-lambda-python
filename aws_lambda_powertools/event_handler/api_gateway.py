@@ -74,6 +74,7 @@ _SAFE_URI = "-._~()'!*:@,;=+&$"  # https://www.ietf.org/rfc/rfc3986.txt
 _UNSAFE_URI = r"%<> \[\]{}|^"
 _NAMED_GROUP_BOUNDARY_PATTERN = rf"(?P\1[{_SAFE_URI}{_UNSAFE_URI}\\w]+)"
 _ROUTE_REGEX = "^{}$"
+_REGEX_METACHARACTERS = frozenset(".^$*+?{}[]\\|()")
 _JSON_DUMP_CALL = partial(json.dumps, separators=(",", ":"), cls=Encoder)
 _ALB_MAX_RESPONSE_SIZE = 1024 * 1024
 
@@ -1709,6 +1710,8 @@ class ApiGatewayResolver(BaseRouter):
         self._proxy_type = proxy_type or self._proxy_event_type
         self._dynamic_routes: list[Route] = []
         self._static_routes: list[Route] = []
+        # Exact rules sit at the front of _static_routes, before regex rules such as "/proxy/.+"
+        self._exact_routes_count = 0
         self._route_keys: list[str] = []
         self._exception_handlers: dict[type, Callable] = {}
         self._cors = cors
@@ -2589,8 +2592,12 @@ class ApiGatewayResolver(BaseRouter):
                 # We store dynamic (/studies/{studyid}) and static routes (/studies/fetch) separately.
                 # Then attempt a match for static routes before dynamic routes.
                 # This ensures that the most specific route is prioritized and processed first (studies/fetch).
+                # Regex rules (e.g. /proxy/.+) have no groups either, so exact rules go ahead of them.
                 if _route.rule.groups > 0:
                     self._dynamic_routes.append(_route)
+                elif _REGEX_METACHARACTERS.isdisjoint(rule):
+                    self._static_routes.insert(self._exact_routes_count, _route)
+                    self._exact_routes_count += 1
                 else:
                     self._static_routes.append(_route)
 

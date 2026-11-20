@@ -1329,6 +1329,37 @@ def test_route_rule_supports_documented_catch_all_regex(rule: str, path: str, ex
     assert json.loads(result["body"]) == expected_route_keys
 
 
+@pytest.mark.parametrize(
+    "catch_all_rule",
+    [
+        pytest.param("/proxy/.+", id="catch-all after a static prefix"),
+        pytest.param(".+", id="catch-all matches any path"),
+    ],
+)
+def test_exact_route_wins_over_catch_all_regex_registered_first(catch_all_rule: str):
+    # GIVEN a catch-all regex route registered before an exact route it also matches
+    app = APIGatewayRestResolver()
+
+    @app.get(catch_all_rule)
+    def catch_all():
+        return {"route": "catch-all"}
+
+    @app.get("/proxy/health")
+    def health():
+        return {"route": "health"}
+
+    # WHEN calling the event handler with the exact path
+    result = app({"httpMethod": "GET", "path": "/proxy/health"}, None)
+
+    # THEN the exact route takes precedence, as documented in "Route Matching Priority"
+    assert result["statusCode"] == 200
+    assert json.loads(result["body"]) == {"route": "health"}
+
+    # AND other paths still reach the catch-all route
+    result = app({"httpMethod": "GET", "path": "/proxy/other"}, None)
+    assert json.loads(result["body"]) == {"route": "catch-all"}
+
+
 def test_similar_dynamic_routes():
     # GIVEN
     app = ApiGatewayResolver()
